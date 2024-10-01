@@ -1,0 +1,187 @@
+import requests
+import tkinter as tk
+from tkinter import filedialog, messagebox
+from tkinter import ttk  # Import for Progressbar
+import os
+import subprocess
+import csv
+
+# Default file paths
+default_input_path = r'C:\temp\tariff_list_in.csv'
+default_output_path = r'C:\temp\tariff_list_out.txt'
+
+# Base URL of the API (without the tariff code)
+base_url = "https://www.trade-tariff.service.gov.uk/api/v2/commodities/"
+
+# Global flag to control cancellation
+cancel_process = False
+
+# Function to read tariff codes from the input CSV file
+def read_tariff_list(file_path):
+    tariff_codes = []
+    try:
+        with open(file_path, newline='') as csvfile:
+            reader = csv.DictReader(csvfile)
+            for row in reader:
+                tariff_codes.append(row['STAWN'])  # Only use the 'STAWN' column
+        return tariff_codes
+    except Exception as e:
+        messagebox.showerror("Error", f"Failed to read input file: {e}")
+        return []
+
+# Function to create a blank output file
+def create_blank_output_file(file_path):
+    try:
+        with open(file_path, 'w') as file:
+            pass  # Create the file without writing anything
+    except Exception as e:
+        messagebox.showerror("Error", f"Failed to create output file: {e}")
+
+# Function to append the result to the output file
+def append_result_to_output(file_path, code, result):
+    try:
+        with open(file_path, 'a') as file:
+            file.write(f"{code}\t{result}\n")
+    except Exception as e:
+        messagebox.showerror("Error", f"Failed to append result to output file: {e}")
+
+# Function to execute the API calls and save results incrementally
+def run_process(input_file, output_file):
+    global cancel_process
+    tariff_codes = read_tariff_list(input_file)
+    if not tariff_codes:
+        return
+
+    total_codes = len(tariff_codes)
+
+    # Create a blank output file before starting
+    create_blank_output_file(output_file)
+
+    # Reset the progress bar and update the maximum
+    progress_bar['value'] = 0
+    progress_bar['maximum'] = total_codes
+
+    # Reset the cancel flag
+    cancel_process = False
+
+    for i, code in enumerate(tariff_codes, 1):
+        if cancel_process:  # Check if cancel button was clicked
+            messagebox.showinfo("Process Canceled", "The process has been canceled.")
+            break
+
+        try:
+            # Construct the full URL and make the request
+            full_url = f"{base_url}{code}"
+            response = requests.get(full_url)
+
+            if response.status_code == 200:
+                result = "Valid"
+            elif response.status_code == 404:
+                result = "Not Found"
+            else:
+                result = f"Error: {response.status_code}"
+
+        except requests.exceptions.RequestException as e:
+            result = f"Request Failed: {e}"
+
+        # Append the result to the output file immediately
+        append_result_to_output(output_file, code, result)
+
+        # Update the progress bar
+        progress_bar['value'] = i
+        progress_bar.update()  # Force the GUI to update the progress bar
+
+# Function to browse input file
+def browse_input_file():
+    file_path = filedialog.askopenfilename(initialdir="/", title="Select Input File",
+                                           filetypes=(("CSV files", "*.csv"), ("All files", "*.*")))
+    if file_path:
+        input_entry.delete(0, tk.END)
+        input_entry.insert(0, file_path)
+
+# Function to browse output file
+def browse_output_file():
+    file_path = filedialog.asksaveasfilename(initialdir="/", title="Select Output File",
+                                             defaultextension=".txt", filetypes=(("Text files", "*.txt"), ("All files", "*.*")))
+    if file_path:
+        output_entry.delete(0, tk.END)
+        output_entry.insert(0, file_path)
+
+# Function to open input file
+def open_input_file():
+    file_path = input_entry.get()
+    if os.path.exists(file_path):
+        subprocess.run(['notepad', file_path])  # Open file in the default text editor (Notepad for Windows)
+    else:
+        messagebox.showerror("Error", "Input file does not exist.")
+
+# Function to open output file
+def open_output_file():
+    file_path = output_entry.get()
+    if os.path.exists(file_path):
+        subprocess.run(['notepad', file_path])  # Open file in the default text editor (Notepad for Windows)
+    else:
+        messagebox.showerror("Error", "Output file does not exist.")
+
+# Function to run the process from the GUI
+def run_button_clicked():
+    input_file = input_entry.get()
+    output_file = output_entry.get()
+
+    if not input_file or not output_file:
+        messagebox.showerror("Error", "Both input and output file paths are required.")
+        return
+
+    run_process(input_file, output_file)
+
+# Function to cancel the process
+def cancel_button_clicked():
+    global cancel_process
+    cancel_process = True  # Set the cancellation flag to True
+
+# GUI Setup
+root = tk.Tk()
+root.title("Tariff Code Validator")
+
+# Input file selection
+input_label = tk.Label(root, text="Input File Path:")
+input_label.grid(row=0, column=0, padx=10, pady=10)
+
+input_entry = tk.Entry(root, width=50)
+input_entry.grid(row=0, column=1, padx=10, pady=10)
+input_entry.insert(0, default_input_path)
+
+input_browse_button = tk.Button(root, text="Browse", command=browse_input_file)
+input_browse_button.grid(row=0, column=2, padx=10, pady=10)
+
+input_open_button = tk.Button(root, text="Open", command=open_input_file)
+input_open_button.grid(row=0, column=3, padx=10, pady=10)
+
+# Output file selection
+output_label = tk.Label(root, text="Output File Path:")
+output_label.grid(row=1, column=0, padx=10, pady=10)
+
+output_entry = tk.Entry(root, width=50)
+output_entry.grid(row=1, column=1, padx=10, pady=10)
+output_entry.insert(0, default_output_path)
+
+output_browse_button = tk.Button(root, text="Browse", command=browse_output_file)
+output_browse_button.grid(row=1, column=2, padx=10, pady=10)
+
+output_open_button = tk.Button(root, text="Open", command=open_output_file)
+output_open_button.grid(row=1, column=3, padx=10, pady=10)
+
+# Progress bar
+progress_bar = ttk.Progressbar(root, orient="horizontal", length=400, mode="determinate")
+progress_bar.grid(row=2, column=1, padx=10, pady=10)
+
+# Run button
+run_button = tk.Button(root, text="Run", command=run_button_clicked, width=10)
+run_button.grid(row=3, column=1, padx=10, pady=20)
+
+# Cancel button
+cancel_button = tk.Button(root, text="Cancel", command=cancel_button_clicked, width=10)
+cancel_button.grid(row=3, column=2, padx=10, pady=20)
+
+# Start the GUI
+root.mainloop()
